@@ -1,0 +1,34 @@
+# General
+.DS_Store
+.vscode/
+*.log
+
+# Environment Variables (Critical for API Keys)
+.env
+*.env
+.env.local
+.env.*.local
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ai-calendar-backend/venv/
+ai-calendar-backend/__pycache__/
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.output/
+ai-calendar-frontend/node_modules/
+ai-calendar-frontend/dist/
+
+# OS Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
