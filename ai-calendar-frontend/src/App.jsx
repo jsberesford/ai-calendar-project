@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+const API_BASE = "http://localhost:8000";
 
 // --- Components ---
 
@@ -18,7 +20,22 @@ function Card({ children, className = "" }) {
   );
 }
 
-function Button({ children, primary, onClick, disabled }) {
+function Button({ children, primary, onClick, disabled, href }) {
+  const base =
+    "inline-flex h-12 items-center justify-center rounded-full px-8 text-sm font-medium transition-colors active:scale-95 disabled:opacity-50";
+  const primaryClass = "bg-white text-black font-semibold hover:opacity-90";
+  const secondaryClass = "border border-white/10 bg-transparent text-white hover:bg-white/5";
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        className={`${base} ${primary ? primaryClass : secondaryClass}`}
+      >
+        {children}
+      </a>
+    );
+  }
   if (primary) {
     return (
       <button
@@ -47,12 +64,44 @@ export default function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [addingToCalendar, setAddingToCalendar] = useState(false);
+  const [calendarResult, setCalendarResult] = useState(null);
+
+  useEffect(() => {
+    async function fetchAuth() {
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
+        const data = await res.json();
+        if (data.logged_in && data.user) setUser(data.user);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setAuthLoading(false);
+      }
+    }
+    fetchAuth();
+    // Refetch after a short delay (handles redirect from OAuth where cookie arrives with the page)
+    const t = setTimeout(fetchAuth, 500);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("auth_error");
+    if (error) {
+      console.warn("Auth error:", error);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   async function handleParse() {
     if (!input.trim()) return;
     setLoading(true);
+    setCalendarResult(null);
     try {
-      const res = await fetch("http://127.0.0.1:8000/parse-events", {
+      const res = await fetch(`${API_BASE}/parse-events`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: input }),
@@ -63,6 +112,31 @@ export default function App() {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleAddToCalendar() {
+    setAddingToCalendar(true);
+    setCalendarResult(null);
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const res = await fetch(`${API_BASE}/calendar/add-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ events, timezone }),
+      });
+      if (res.status === 401) {
+        setCalendarResult({ error: "Sign in with Google first." });
+        return;
+      }
+      const data = await res.json();
+      setCalendarResult({ added: data.added, events: data.events });
+    } catch (e) {
+      console.error(e);
+      setCalendarResult({ error: "Failed to add events. Try again." });
+    } finally {
+      setAddingToCalendar(false);
     }
   }
 
@@ -81,7 +155,27 @@ export default function App() {
             <a href="#" className="hover:text-white">Manifesto</a>
             <a href="#" className="hover:text-white">Pricing</a>
           </nav>
-          <div className="text-sm text-white/40">v1.0 Beta</div>
+          <div className="flex items-center gap-4">
+            {authLoading ? (
+              <span className="text-sm text-white/40">...</span>
+            ) : user ? (
+              <div className="flex items-center gap-3">
+                {user.picture && (
+                  <img
+                    src={user.picture}
+                    alt=""
+                    className="h-8 w-8 rounded-full"
+                  />
+                )}
+                <span className="text-sm text-white/80 max-w-[120px] truncate">{user.email}</span>
+                <Button href={`${API_BASE}/auth/logout`}>Sign out</Button>
+              </div>
+            ) : (
+              <Button primary href={`${API_BASE}/auth/google`}>
+                Sign in with Google
+              </Button>
+            )}
+          </div>
         </header>
 
         {/* Hero Section */}
@@ -166,6 +260,31 @@ export default function App() {
                     </div>
                   </div>
                 ))}
+                <div className="pt-2">
+                  {user ? (
+                    <Button primary onClick={handleAddToCalendar} disabled={addingToCalendar}>
+                      {addingToCalendar ? "Adding..." : "Add to Google Calendar"}
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-white/40">Sign in with Google to add these events to your calendar.</p>
+                  )}
+                  {calendarResult && (
+                    <div className="mt-3 text-sm">
+                      {calendarResult.error ? (
+                        <p className="text-red-400">{calendarResult.error}</p>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="text-white/60">{calendarResult.added} event{calendarResult.added !== 1 ? "s" : ""} added.</p>
+                          {calendarResult.events.map((ev, i) => (
+                            <a key={i} href={ev.link} target="_blank" rel="noreferrer" className="block text-white/40 hover:text-white underline truncate">
+                              {ev.title}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </Card>

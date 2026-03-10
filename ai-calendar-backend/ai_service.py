@@ -1,9 +1,8 @@
 import os
 import json
-import re
+from datetime import date
 
-import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted
+from google import genai
 from fastapi import HTTPException
 from dotenv import load_dotenv
 
@@ -11,10 +10,8 @@ from models import Event
 
 # Load .env and configure Gemini
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-# Use a widely-supported model
-model = genai.GenerativeModel("gemini-2.0-flash")
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """
 You are an event parser. Convert natural language into structured calendar events.
@@ -40,12 +37,13 @@ No extra keys. No extra text. No explanations.
 
 def parse_text_to_events(text: str):
     try:
-        # Combine system prompt with user input
-        prompt = f"{SYSTEM_PROMPT}\n\nInput: {text}"
-        print(f"Sending prompt to Gemini: {prompt[:100]}...") # Log prompt start
-        response = model.generate_content(prompt)
-        
-        # Get the text content
+        today = date.today().isoformat()
+        prompt = f"{SYSTEM_PROMPT}\n\nToday's date is {today}. Use this year and current date to resolve relative dates like 'tomorrow', 'next Friday', 'March 28th'.\n\nInput: {text}"
+        print(f"Sending prompt to Gemini: {prompt[:100]}...")
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+        )
         response_text = response.text
         print(f"Raw response from Gemini: {response_text}") # Log raw response
         
@@ -63,14 +61,13 @@ def parse_text_to_events(text: str):
         print(f"Parsed events: {events}") # Log parsed events
         return events
 
-    except ResourceExhausted as e:
-        print("Gemini/Vertex quota hit:", e)
-        raise HTTPException(
-            status_code=429,
-            detail="AI quota / rate limit hit. Try again in a bit or reduce request frequency."
-        )
     except Exception as e:
+        err_msg = str(e).lower()
+        if "429" in err_msg or "quota" in err_msg or "resource exhausted" in err_msg:
+            print("Gemini quota hit:", e)
+            raise HTTPException(
+                status_code=429,
+                detail="AI quota / rate limit hit. Try again in a bit or reduce request frequency."
+            )
         print(f"Error parsing events: {e}")
-        # Return empty list or raise error depending on preference. 
-        # For now, let's return empty list but log the error so the backend stays alive
         return []
